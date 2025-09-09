@@ -55,6 +55,7 @@ static uint8_t command_index = 0;  // 命令缓冲区索引
 static uint32_t position = 0x00000000;
 // 每次递增 1000 (十进制)，即 0x3E8
 #define POSITION_STEP_HEX   0x000003E8u
+#define CMD_LINE_MAX 50  // 与 stm32h7xx_it.c 保持一致
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -110,88 +111,102 @@ osMessageQueueId_t uart_rx_queue;
  * @retval None
  */
 static uint8_t output_status[10] = {0};  // 初始状态都为 0 (低电平)
-void parse_command(uint8_t *command)
+static inline void do_move(int32_t delta)
 {
-    uint8_t output_port = 0;
-    uint8_t valid_command = 1;
-
-    // 假设命令格式为 "A", "B" 等
-    if (command[0] >= 'A' && command[0] <= 'J')  // 确保命令是 A-J
-    {
-        output_port = command[0] - 'A';  // 根据字母计算输出口编号 (A -> 0, B -> 1, ..., J -> 9)
-
-        // 根据当前端口的状态反向切换
-        if (output_status[output_port] == 0)  // 当前为低电平
-        {
-            // 切换为高电平
-            DigitalQuantity_Output(output_port + 1, HIGH);
-            output_status[output_port] = 1;  // 更新状态为高电平
-        }
-        else  // 当前为高电平
-        {
-            // 切换为低电平
-            DigitalQuantity_Output(output_port + 1, LOW);
-            output_status[output_port] = 0;  // 更新状态为低电平
-        }
-
-        printf("控制输出口 %d: %s\n", output_port + 1, output_status[output_port] ? "高电平" : "低电平");
+    // 这里 position 是 uint32_t，如果你不想让减法回绕，可以自己加饱和判断
+    if (delta >= 0) {
+        position += (uint32_t)delta;
+    } else {
+        // 若不希望回绕，可改成：if (position < (uint32_t)(-delta)) position = 0; else position -= (uint32_t)(-delta);
+        position -= (uint32_t)(-delta);
     }
-else if (command[0] == 'W' || command[0] == 'w')
+
+    // 写入新的目标位置并触发运动
+    canopen_sdo_write(3, 0x607A, 0x00, position, 4); // 目标位置
+    osDelay(20);
+    canopen_sdo_write(3, 0x6040, 0x00, 0x004F, 2);   // 使能/准备
+    osDelay(20);
+    canopen_sdo_write(3, 0x6040, 0x00, 0x005F, 2);   // 启动新位置运动
+    osDelay(20);
+
+    printf("move: position=0x%08lX (step=%ld)\n",
+           (unsigned long)position, (long)delta);
+}
+
+static void parse_command(const char *line)
 {
-    // 每收到一次 W/w，就在原有基础上 +0x3E8
-    position += POSITION_STEP_HEX;
+    if (!line) { printf("无效命令: <null>\n"); return; }
 
-    // 如果你担心溢出，可以加上限或回绕，这里示例回绕：
-    // if (position > 0x7FFFFFFF) position = 0;
+    // 跳过前导空白
+    const char *p = line;
+    while (*p == ' ' || *p == '\t') p++;
 
-    // 写入新的目标位置
-    canopen_sdo_write(3, 0x607A, 0x00, position, 4); // 设定目标位置 (十六进制值)
-    osDelay(20);
-    canopen_sdo_write(3, 0x6040, 0x00, 0x0000004F, 2); // 使能/准备
-    osDelay(20);
-    canopen_sdo_write(3, 0x6040, 0x00, 0x0000005F, 2); // 启动新位置运动
-    osDelay(20);
+    // 取前三个字符（足够判断）
+    char c0 = p[0];
+    char c1 = p[1];
+    char c2 = p[2];
 
-    printf("telescopingForkFSM, position=0x%08lX (+0x%lX)\n",
-           (unsigned long)position, (unsigned long)POSITION_STEP_HEX);
-}
-  else if (command[0]=='O')
-  {
-    ServoTxPacket packet = createSetPositionPacket(0x02, 0x0000, 0x0000, 0x0000);
-    sendServoPacket(&packet);
-  }
-    else if (command[0]=='K')
-  {
-    ServoTxPacket packet = createSetPositionPacket(0x02, 0x0100, 0x0000, 0x0000);
-    sendServoPacket(&packet);
-  }
-  
-    else
+    // ---- 方案A：两字符数字（端口+电平） ----
+    // 允许第三个是 '\0' / '\r' / 空格 / '\t'
+    if (c0 >= '0' && c0 <= '9' && (c1 == '0' || c1 == '1') &&
+        (c2 == '\0' || c2 == '\r' || c2 == ' ' || c2 == '\t'))
     {
-        printf("无效命令: %s\n", command);
+        uint8_t port  = (uint8_t)(c0 - '0'); // 0..9
+        uint8_t level = (uint8_t)(c1 - '0'); // 0/1
+
+        if (level)  DigitalQuantity_Output(port + 1, HIGH);
+        else        DigitalQuantity_Output(port + 1, LOW);
+
+        printf("控制输出口 %u: %s\n", (unsigned)(port + 1), level ? "HIGH" : "LOW");
+        return;
     }
+
+    // ---- 方案B：单字符运动命令（W/S/A/D）----
+    // 允许只有一个字母 + 终止/空白
+    if ((c0 == 'W' || c0 == 'w' ||
+         c0 == 'S' || c0 == 's' ||
+         c0 == 'A' || c0 == 'a' ||
+         c0 == 'D' || c0 == 'd') &&
+        (c1 == '\0' || c1 == '\r' || c1 == ' ' || c1 == '\t'))
+    {
+        switch (c0) {
+            case 'W': case 'w':        // 前进：+step
+            case 'D': case 'd':        // 右转：+step（你说“AD也是一样”，这里也按 +step 处理）
+                do_move((int32_t)POSITION_STEP_HEX);
+                break;
+
+            case 'S': case 's':        // 后退：-step
+            case 'A': case 'a':        // 左转：-step
+                do_move(-(int32_t)POSITION_STEP_HEX);
+                break;
+        }
+        return;
+    }
+
+    // 其它内容一律视为无效
+    printf("无效命令: %s\n", line ? line : "<null>");
 }
+
 void parse_command_task(void *argument)
 {
-    uint8_t received_command[50];
-    for (;;)
-    {
-        // 等待接收完整命令
-        osMessageQueueGet(uart_rx_queue, &received_command, NULL, osWaitForever);
+    uint8_t line[50];  // 队列里每条消息是一行的快照
 
-        // 打印接收到的数据
-        printf("Received command: %s\n", received_command);
-
-        // 解析命令
-        parse_command(received_command);
+    for (;;) {
+        if (osMessageQueueGet(uart_rx_queue, line, NULL, osWaitForever) == osOK) {
+            // 保证以 '\0' 结尾（双重保险）
+            line[sizeof(line)-1] = '\0';
+            printf("Received command: %s\r\n", line);
+            parse_command((const char*)line);
+        }
     }
 }
+
 
 void MX_FREERTOS_Init(void)
 {
 
     // 创建队列
-    uart_rx_queue = osMessageQueueNew(10, sizeof(uint8_t), NULL);
+  uart_rx_queue = osMessageQueueNew(8, CMD_LINE_MAX, NULL);
 
     // 创建解析命令的任务
     osThreadNew(parse_command_task, NULL, NULL);
@@ -287,7 +302,7 @@ void DigitalOutputTestTask()
   // TCP_Echo_Init();
   while (1)
   {
-    printf("aa");
+    // printf("aa");
     // 读取数据
     // tcp_read_data();
     canopen_sdo_read(3, 0x1017, 0x00);
@@ -315,13 +330,13 @@ void DigitalOutputTestTask()
     }
     // FDCAN2_Send_Msg(dataReceived, 8, 0);
     // printf("tx: %d\n", now);
-    // now = canopen_sdo_write(3, 0x6099, 0x03, 0x00000000, 1); // 关闭自动回零
-    // now = canopen_sdo_write(3, 0x6060, 0x00, 0x00000001, 1); // 设置工作模式
-    // now = canopen_sdo_write(3, 0x607A, 0x00, 0xFFFFD8F0, 4); // 设定目标位置
-    // now = canopen_sdo_write(3, 0x6081, 0x00, 0x00085555, 4); // 设定梯形速度
-    // // now = canopen_send_nmt(3, NMT_START_CMD);                // 管理节点进入operational状态开启PDO传输
-    // now = canopen_sdo_write(3, 0x6040, 0x00, 0x0000004F, 2); // 写控制字4F
-    // now = canopen_sdo_write(3, 0x6040, 0x00, 0x0000005F, 2); // 写控制字5F
+    now = canopen_sdo_write(3, 0x6099, 0x03, 0x00000000, 1); // 关闭自动回零
+    now = canopen_sdo_write(3, 0x6060, 0x00, 0x00000001, 1); // 设置工作模式
+    now = canopen_sdo_write(3, 0x607A, 0x00, 0xFFFFD8F0, 4); // 设定目标位置
+    now = canopen_sdo_write(3, 0x6081, 0x00, 0x00085555, 4); // 设定梯形速度
+    // now = canopen_send_nmt(3, NMT_START_CMD);                // 管理节点进入operational状态开启PDO传输
+    now = canopen_sdo_write(3, 0x6040, 0x00, 0x0000004F, 2); // 写控制字4F
+    now = canopen_sdo_write(3, 0x6040, 0x00, 0x0000005F, 2); // 写控制字5F
     // ServoTxPacket packet = createSetPositionPacket(0x02, 0x0400, 0x000, 0x0000);
     // sendServoPacket(&packet);
     // servoFlag=1;

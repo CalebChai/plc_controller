@@ -42,8 +42,12 @@
 
 
 // 在 stm32h7xx_it.c 中定义自己的变量
-uint8_t stm32h7xx_command_buffer[50];  // 用于存储接收到的命令
-static uint8_t stm32h7xx_command_index = 0;  // 命令缓冲区索引
+extern uint8_t USART2_aRxBuffer[USART2_RXBUFFERSIZE];
+extern osMessageQueueId_t uart_rx_queue;
+
+#define CMD_LINE_MAX  50
+static char   stm32h7xx_command_buffer[CMD_LINE_MAX];
+static size_t stm32h7xx_command_index = 0;
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -383,27 +387,37 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
     HAL_UART_Receive_IT(&huart3, (uint8_t *)rxBuffer, 1);
   }
 
-if (huart->Instance == USART2)
-    {
-        uint8_t received_data = USART2_aRxBuffer[0];  // 接收到的数据
+if (huart->Instance == USART2) {
+        uint8_t b = USART2_aRxBuffer[0];
 
-        // 如果接收到换行符，表示命令结束
-        if (received_data == '\n' || received_data == '\r')  // 换行或回车
-        {
-            stm32h7xx_command_buffer[stm32h7xx_command_index] = '\0';  // 添加结束符
-            osMessageQueuePut(uart_rx_queue, stm32h7xx_command_buffer, 0, 0);  // 将完整命令放入队列
-            stm32h7xx_command_index = 0;  // 重置命令缓冲区索引
-        }
-        else
-        {
-            if (stm32h7xx_command_index < 50 - 1)  // 确保缓冲区不会溢出
-            {
-                stm32h7xx_command_buffer[stm32h7xx_command_index++] = received_data;  // 存储接收到的数据
+        if (b == '\r') {
+            // 忽略 CR（兼容 CRLF）
+        } else if (b == '\n') {
+            // 行结束：补 '\0'，入队
+            if (stm32h7xx_command_index >= CMD_LINE_MAX)
+                stm32h7xx_command_index = CMD_LINE_MAX - 1;
+
+            stm32h7xx_command_buffer[stm32h7xx_command_index] = '\0';
+
+            // 从 ISR 入队，timeout=0
+            (void)osMessageQueuePut(uart_rx_queue,
+                                    stm32h7xx_command_buffer,
+                                    0, 0);
+
+            // 清零，准备下一行
+            stm32h7xx_command_index = 0;
+        } else {
+            // 普通字符：写入缓冲（留 1 个字节给 '\0'）
+            if (stm32h7xx_command_index < CMD_LINE_MAX - 1) {
+                stm32h7xx_command_buffer[stm32h7xx_command_index++] = (char)b;
+            } else {
+                // 超长：丢弃本行，重新开始
+                stm32h7xx_command_index = 0;
             }
         }
 
-        // 重新启动接收中断，准备接收下一个字节
-        HAL_UART_Receive_IT(&huart2, USART2_aRxBuffer, 1);
+        // 继续打开下一个字节的中断接收
+        HAL_UART_Receive_IT(&huart2, (uint8_t *)USART2_aRxBuffer, 1);
     }
   if (huart->Instance == USART10)
   {

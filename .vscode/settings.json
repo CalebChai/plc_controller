@@ -1,0 +1,32 @@
+{
+    "files.associations": {
+        "digital_quantity.h": "c",
+        "usart.h": "c",
+        "rs485.h": "c",
+        "servo.h": "c",
+        "canopen.h": "c",
+        "fdcan.h": "c",
+        "stm32h7xx.h": "c",
+        "string": "c",
+        "buke_servo.h": "c",
+        "iosfwd": "cpp",
+        "limits": "cpp",
+        "memory": "cpp",
+        "utility": "cpp",
+        "exception": "cpp",
+        "new": "cpp",
+        "cell.h": "c",
+        "main.h": "c",
+        "stm32h7xx_hal_def.h": "c",
+        "stm32h7xx_hal_gpio.h": "c",
+        "stdint.h": "c",
+        "eeprom.h": "c",
+        "i2c.h": "c",
+        "yt8512c.h": "c",
+        "tcpserver.h": "c",
+        "malloc.h": "c",
+        "tcpclient.h": "c",
+        "mg65driver.h": "c",
+        "telescoping_fork.h": "c"
+    }
+}

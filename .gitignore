@@ -1,0 +1,54 @@
+# ---------- 通用 ----------
+# IDE 临时/系统文件
+.vscode/
+.idea/
+*.user
+*.suo
+*.tmp
+*.log
+*.swp
+.DS_Store
+Thumbs.db
+
+# ---------- Keil MDK ----------
+# 个人会话文件（不应入库）
+MDK-ARM/**/*.uvoptx
+MDK-ARM/**/*.uvguix.*
+MDK-ARM/**/*.scvd
+
+# 生成的中间文件/目录
+MDK-ARM/**/Objects/
+MDK-ARM/**/Listings/
+
+# 目标产物
+*.axf
+*.elf
+*.hex
+*.bin
+*.map
+*.lst
+*.crf
+*.o
+*.obj
+*.d
+*.dep
+*.lnp
+
+# 可选：保留 *.uvprojx（工程文件），忽略备份
+MDK-ARM/**/*.bak
+
+# Keil RTE（通常构建时自动生成）
+RTE/
+
+# ---------- CubeMX / 其他构建 ----------
+Debug/
+Release/
+.build/
+.settings/
+
+# ---------- 网络/中间层库的生成物 ----------
+LWIP/**/build/
+Middlewares/**/build/
+
+# ---------- 你项目里可不入库的本地配置 ----------
+#（如不想提交 VS Code 配置就保留 .vscode/；若要提交则删掉上面的 .vscode/）

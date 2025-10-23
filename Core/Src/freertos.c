@@ -45,6 +45,7 @@
 void DigitalOutputTestTask();
 void ServoTask();
 void lwipTask();
+void AutoMoveTask(void *argument);
 /* USER CODE END PTD */
 
 /* Private define ------------------------------------------------------------*/
@@ -53,6 +54,7 @@ void lwipTask();
 uint8_t command_buffer[50];  // 用于存储接收到的命令
 static uint8_t command_index = 0;  // 命令缓冲区索引
 static uint32_t position = 0x00000000;
+static uint32_t fork_position = 0x00000000;
 // 每次递增 1000 (十进制)，即 0x3E8
 #define POSITION_STEP_HEX   0x000003E8u
 #define CMD_LINE_MAX 50  // 与 stm32h7xx_it.c 保持一致
@@ -98,6 +100,13 @@ const osThreadAttr_t lwipTask_attributes = {
     .priority = (osPriority_t)osPriorityNormal1,
 };
 
+osThreadId_t AutoMoveTaskHandle;
+const osThreadAttr_t AutoMoveTask_attributes = {
+    .name = "AutoMoveTask",
+    .stack_size = 512 * 4,
+    .priority = (osPriority_t)osPriorityNormal1,
+};
+
 /* USER CODE END FunctionPrototypes */
 
 void StartDefaultTask(void *argument);
@@ -111,10 +120,55 @@ osMessageQueueId_t uart_rx_queue;
  * @retval None
  */
 static uint8_t output_status[10] = {0};  // 初始状态都为 0 (低电平)
-static inline void do_move(int32_t delta)
+static inline void forkExtend(int32_t delta)
 {
     // 这里 position 是 uint32_t，如果你不想让减法回绕，可以自己加饱和判断
     if (delta >= 0) {
+        fork_position += (uint32_t)delta;
+    } else {
+        // 若不希望回绕，可改成：if (position < (uint32_t)(-delta)) position = 0; else position -= (uint32_t)(-delta);
+        position -= (uint32_t)(-delta);
+    }
+
+    // 写入新的目标位置并触发运动
+    canopen_sdo_write(2, 0x607A, 0x00, fork_position, 4); // 目标位置
+    osDelay(20);
+    canopen_sdo_write(2, 0x6040, 0x00, 0x004F, 2);   // 使能/准备
+    osDelay(20);
+    canopen_sdo_write(2, 0x6040, 0x00, 0x005F, 2);   // 启动新位置运动
+    osDelay(20);
+
+    printf("move: position=0x%08lX (step=%ld)\n",
+       (unsigned long)fork_position, (long)delta);
+
+}
+static inline void forkRetract(int32_t delta)
+{
+    // 这里 position 是 uint32_t，如果你不想让减法回绕，可以自己加饱和判断
+    if (delta >= 0) {
+        fork_position += (uint32_t)delta;
+    } else {
+        // 若不希望回绕，可改成：if (position < (uint32_t)(-delta)) position = 0; else position -= (uint32_t)(-delta);
+        position -= (uint32_t)(-delta);
+    }
+
+    // 写入新的目标位置并触发运动
+    canopen_sdo_write(2, 0x607A, 0x00, 0, 4); // 目标位置
+    osDelay(20);
+    canopen_sdo_write(2, 0x6040, 0x00, 0x004F, 2);   // 使能/准备
+    osDelay(20);
+    canopen_sdo_write(2, 0x6040, 0x00, 0x005F, 2);   // 启动新位置运动
+    osDelay(20);
+
+    printf("move_x: position=0 \n");
+}
+
+static inline void do_move(int32_t delta)
+{
+  if(DigitalQuantity_Input(2)==0)// 数字量输入输出测试
+    // 这里 position 是 uint32_t，如果你不想让减法回绕，可以自己加饱和判断
+    {
+      if (delta >= 0) {
         position += (uint32_t)delta;
     } else {
         // 若不希望回绕，可改成：if (position < (uint32_t)(-delta)) position = 0; else position -= (uint32_t)(-delta);
@@ -129,8 +183,13 @@ static inline void do_move(int32_t delta)
     canopen_sdo_write(3, 0x6040, 0x00, 0x005F, 2);   // 启动新位置运动
     osDelay(20);
 
-    printf("move: position=0x%08lX (step=%ld)\n",
+    printf("move_y: position=0x%08lX (step=%ld)\n",
            (unsigned long)position, (long)delta);
+    }
+  else
+    printf("fork_not_arrive");
+
+    
 }
 
 static void parse_command(const char *line)
@@ -153,7 +212,21 @@ static void parse_command(const char *line)
     {
         uint8_t port  = (uint8_t)(c0 - '0'); // 0..9
         uint8_t level = (uint8_t)(c1 - '0'); // 0/1
-
+        if(port==0)
+        {
+          printf("port:%d/n",port);
+          if(level)
+          {
+            ServoTxPacket packet = createSetPositionPacket(0x02, 0x0400, 0x0000, 0x0000);
+            sendServoPacket(&packet);
+          }
+          else
+          {
+            ServoTxPacket packet = createSetPositionPacket(0x02, 0x0000, 0x0000, 0x0000);
+            sendServoPacket(&packet);
+          }
+           
+        }
         if (level)  DigitalQuantity_Output(port + 1, HIGH);
         else        DigitalQuantity_Output(port + 1, LOW);
 
@@ -171,11 +244,13 @@ static void parse_command(const char *line)
     {
         switch (c0) {
             case 'W': case 'w':        // 前进：+step
+                forkExtend((int32_t)POSITION_STEP_HEX);
             case 'D': case 'd':        // 右转：+step（你说“AD也是一样”，这里也按 +step 处理）
                 do_move((int32_t)POSITION_STEP_HEX);
                 break;
 
             case 'S': case 's':        // 后退：-step
+                forkRetract((int32_t)POSITION_STEP_HEX);
             case 'A': case 'a':        // 左转：-step
                 do_move(-(int32_t)POSITION_STEP_HEX);
                 break;
@@ -240,6 +315,7 @@ void MX_FREERTOS_Init(void)
   DigitalTestTaskHandle = osThreadNew(DigitalOutputTestTask, NULL, &DigitalTestTask_attributes);
   // ServoTaskHandle = osThreadNew(ServoTask, NULL, &ServoTask_attributes);
   // lwipTaskHandle = osThreadNew(lwipTask, NULL, &lwipTask_attributes);
+  AutoMoveTaskHandle = osThreadNew(AutoMoveTask, NULL, &AutoMoveTask_attributes);
   /* USER CODE END RTOS_THREADS */
 
   /* USER CODE BEGIN RTOS_EVENTS */
@@ -299,6 +375,7 @@ void DigitalOutputTestTask()
   uint8_t chunk = 0;
   static uint16_t errors = 0;
   uint8_t input2_value = 0;
+  uint8_t input2_value_last = 0;
   // TCP_Echo_Init();
   while (1)
   {
@@ -322,7 +399,7 @@ void DigitalOutputTestTask()
     //   osDelay(20);
     //   printf("telescopingForkFSM\n");
     // }
-
+    now = canopen_sdo_write(2, 0x1017, 0x00, 0x000003E8, 2); // 开启心跳报文 时间为1s
     now = canopen_sdo_write(3, 0x1017, 0x00, 0x000003E8, 2); // 开启心跳报文 时间为1s
     if (HAL_FDCAN_GetTxFifoFreeLevel(&hfdcan2) == 0)
     {
@@ -330,17 +407,17 @@ void DigitalOutputTestTask()
     }
     // FDCAN2_Send_Msg(dataReceived, 8, 0);
     // printf("tx: %d\n", now);
-    now = canopen_sdo_write(3, 0x6099, 0x03, 0x00000000, 1); // 关闭自动回零
-    now = canopen_sdo_write(3, 0x6060, 0x00, 0x00000001, 1); // 设置工作模式
-    now = canopen_sdo_write(3, 0x607A, 0x00, 0xFFFFD8F0, 4); // 设定目标位置
-    now = canopen_sdo_write(3, 0x6081, 0x00, 0x00085555, 4); // 设定梯形速度
-    // now = canopen_send_nmt(3, NMT_START_CMD);                // 管理节点进入operational状态开启PDO传输
-    now = canopen_sdo_write(3, 0x6040, 0x00, 0x0000004F, 2); // 写控制字4F
-    now = canopen_sdo_write(3, 0x6040, 0x00, 0x0000005F, 2); // 写控制字5F
+    // now = canopen_sdo_write(3, 0x6099, 0x03, 0x00000000, 1); // 关闭自动回零
+    // now = canopen_sdo_write(3, 0x6060, 0x00, 0x00000001, 1); // 设置工作模式
+    // now = canopen_sdo_write(3, 0x607A, 0x00, 0xFFFFD8F0, 4); // 设定目标位置
+    // now = canopen_sdo_write(3, 0x6081, 0x00, 0x00085555, 4); // 设定梯形速度
+    // // now = canopen_send_nmt(3, NMT_START_CMD);                // 管理节点进入operational状态开启PDO传输
+    // now = canopen_sdo_write(3, 0x6040, 0x00, 0x0000004F, 2); // 写控制字4F
+    // now = canopen_sdo_write(3, 0x6040, 0x00, 0x0000005F, 2); // 写控制字5F
     // ServoTxPacket packet = createSetPositionPacket(0x02, 0x0400, 0x000, 0x0000);
     // sendServoPacket(&packet);
     // servoFlag=1;
-    osDelay(5000);
+    osDelay(2000);
     // osDelay(3000);                                           // 步科伺服电机canopen测试
     // now = canopen_sdo_write(3, 0x607A, 0x00, 0xFFFFD8F0, 4); // 设定目标位置
     // osDelay(20);
@@ -348,8 +425,11 @@ void DigitalOutputTestTask()
     // osDelay(20);
     // now = canopen_sdo_write(3, 0x6040, 0x00, 0x0000005F, 2); // 写控制字5F
     // osDelay(20); 
+    
+      input2_value = DigitalQuantity_Input(2); // 数字量输入输出测试
 
-       input2_value = DigitalQuantity_Input(7); // 数字量输入输出测试
+      printf("%u",input2_value); 
+
       //  DigitalQuantity_Output(1, LOW);
       //  DigitalQuantity_Output(2, LOW);
       //  DigitalQuantity_Output(3, HIGH);
@@ -507,6 +587,17 @@ void lwipTask()
     vTaskDelay(pdMS_TO_TICKS(1000)); // 每秒执行1
   }
   /* USER CODE END StartTask02 */
+}
+
+void AutoMoveTask(void *argument)
+{
+  /* USER CODE BEGIN AutoMoveTask */
+  for (;;)
+  {
+    // TODO: add automatic movement logic
+    osDelay(1);
+  }
+  /* USER CODE END AutoMoveTask */
 }
 
 /* USER CODE END Application */

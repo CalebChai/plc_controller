@@ -14,7 +14,7 @@ void telescopingForkInit(void)
     canopen_sdo_write(nodeId, 0x6060, 0x00, 0x00000001, 1); // 位置模式
     osDelay(20);
 
-    canopen_sdo_write(nodeId, 0x6081, 0x00, 0x00085555, 4); // 梯形速度
+    canopen_sdo_write(nodeId, 0x6081, 0x00, 0x0014FFFF, 4); // 梯形速度
     osDelay(20);
 
     currentState = FORK_STATE_IDLE;

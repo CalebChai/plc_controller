@@ -1,7 +1,7 @@
 #include "canopen.h"
 static FDCAN_TxHeaderTypeDef can_cfg;
 static uint8_t local_node_id = 0;
-// ³õÊ¼»¯CANopenÍ¨ÐÅ
+// ï¿½ï¿½Ê¼ï¿½ï¿½CANopenÍ¨ï¿½ï¿½
 CANopen_Status canopen_init(uint8_t node_id, FDCAN_TxHeaderTypeDef fdcan_cfg)
 {
     can_cfg = fdcan_cfg;
@@ -9,14 +9,14 @@ CANopen_Status canopen_init(uint8_t node_id, FDCAN_TxHeaderTypeDef fdcan_cfg)
     return CANOPEN_OK;
 }
 
-// ·¢ËÍNMTÃüÁî
+// ï¿½ï¿½ï¿½ï¿½NMTï¿½ï¿½ï¿½ï¿½
 CANopen_Status canopen_send_nmt(uint8_t node_id, uint8_t command)
 {
     uint8_t nmt_data[8] = {command, node_id, 0, 0, 0, 0, 0, 0};
     return (FDCAN2_Send_Msg(nmt_data, 8, 0x000) == HAL_OK) ? CANOPEN_OK : CANOPEN_TX_ERROR;
 }
 
-// SDOÏÂÔØÇëÇó£¨Ð´¶ÔÏó×Öµä£©
+// SDOï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ð´ï¿½ï¿½ï¿½ï¿½ï¿½Öµä£©
 CANopen_Status canopen_sdo_write(uint8_t node_id, uint16_t index, uint8_t subindex, uint32_t data, uint8_t len)
 {
     static uint16_t len_cmd = 0;
@@ -24,98 +24,98 @@ CANopen_Status canopen_sdo_write(uint8_t node_id, uint16_t index, uint8_t subind
     {
     case 1:
         /* code */
-        len_cmd = 0x0f; // Ð´1×Ö½Ú
+        len_cmd = 0x0f; // Ð´1ï¿½Ö½ï¿½
 
         break;
     case 2:
         /* code */
-        len_cmd = 0x0b; // Ð´2×Ö½Ú
+        len_cmd = 0x0b; // Ð´2ï¿½Ö½ï¿½
         break;
     case 3:
         /* code */
-        len_cmd = 0x07; // Ð´3×Ö½Ú
+        len_cmd = 0x07; // Ð´3ï¿½Ö½ï¿½
         break;
     case 4:
         /* code */
-        len_cmd = 0x03; // Ð´4×Ö½Ú
+        len_cmd = 0x03; // Ð´4ï¿½Ö½ï¿½
         break;
 
     default:
         break;
     }
     uint8_t sdo_data[8] = {
-        SDO_DOWNLOAD_REQ | len_cmd, // ÃüÁî×Ö: ¿ìËÙÏÂÔØ(4×Ö½Ú)
-        index & 0xFF,               // Ë÷ÒýµÍ×Ö½Ú
-        index >> 8,                 // Ë÷Òý¸ß×Ö½Ú
-        subindex,                   // ×ÓË÷Òý
-        (uint8_t)(data),            // Êý¾Ý×Ö½Ú0
-        (uint8_t)(data >> 8),       // Êý¾Ý×Ö½Ú1
-        (uint8_t)(data >> 16),      // Êý¾Ý×Ö½Ú2
-        (uint8_t)(data >> 24)       // Êý¾Ý×Ö½Ú3
+        SDO_DOWNLOAD_REQ | len_cmd, // ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½: ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½(4ï¿½Ö½ï¿½)
+        index & 0xFF,               // ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ö½ï¿½
+        index >> 8,                 // ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ö½ï¿½
+        subindex,                   // ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½
+        (uint8_t)(data),            // ï¿½ï¿½ï¿½ï¿½ï¿½Ö½ï¿½0
+        (uint8_t)(data >> 8),       // ï¿½ï¿½ï¿½ï¿½ï¿½Ö½ï¿½1
+        (uint8_t)(data >> 16),      // ï¿½ï¿½ï¿½ï¿½ï¿½Ö½ï¿½2
+        (uint8_t)(data >> 24)       // ï¿½ï¿½ï¿½ï¿½ï¿½Ö½ï¿½3
     };
 
-    // ÉèÖÃÄ¿±ê½ÚµãSDO COB-ID
+    // ï¿½ï¿½ï¿½ï¿½Ä¿ï¿½ï¿½Úµï¿½SDO COB-ID
     uint32_t original_tx_id = can_cfg.Identifier;
     can_cfg.Identifier = 0x600 + node_id;
 
     HAL_StatusTypeDef status = FDCAN2_Send_Msg(sdo_data, 8, can_cfg.Identifier);
 
-    // »Ö¸´Ô­Ê¼ID
+    // ï¿½Ö¸ï¿½Ô­Ê¼ID
     can_cfg.Identifier = original_tx_id;
-
+    printf("status:%d",status);
     return (status == HAL_OK) ? CANOPEN_OK : CANOPEN_TX_ERROR;
 }
 
-// SDO¶ÁÈ¡ÇëÇó£¨¶Á¶ÔÏó×Öµä£©
+// SDOï¿½ï¿½È¡ï¿½ï¿½ï¿½ó£¨¶ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Öµä£©
 CANopen_Status canopen_sdo_read(uint8_t node_id, uint16_t index, uint8_t subindex)
 {
     static uint16_t len_cmd = 0;
     uint8_t sdo_data[8] = {
-        0x40,         // ÃüÁî×Ö: ¶ÁÈ¡
-        index & 0xFF, // Ë÷ÒýµÍ×Ö½Ú
-        index >> 8,   // Ë÷Òý¸ß×Ö½Ú
-        subindex,     // ×ÓË÷Òý
-        0x00,         // Êý¾Ý×Ö½Ú0
-        0x00,         // Êý¾Ý×Ö½Ú1
-        0x00,         // Êý¾Ý×Ö½Ú2
-        0x00          // Êý¾Ý×Ö½Ú3
+        0x40,         // ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½: ï¿½ï¿½È¡
+        index & 0xFF, // ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ö½ï¿½
+        index >> 8,   // ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ö½ï¿½
+        subindex,     // ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½
+        0x00,         // ï¿½ï¿½ï¿½ï¿½ï¿½Ö½ï¿½0
+        0x00,         // ï¿½ï¿½ï¿½ï¿½ï¿½Ö½ï¿½1
+        0x00,         // ï¿½ï¿½ï¿½ï¿½ï¿½Ö½ï¿½2
+        0x00          // ï¿½ï¿½ï¿½ï¿½ï¿½Ö½ï¿½3
     };
 
-    // ÉèÖÃÄ¿±ê½ÚµãSDO COB-ID
+    // ï¿½ï¿½ï¿½ï¿½Ä¿ï¿½ï¿½Úµï¿½SDO COB-ID
     uint32_t original_tx_id = can_cfg.Identifier;
     can_cfg.Identifier = 0x600 + node_id;
 
     HAL_StatusTypeDef status = FDCAN2_Send_Msg(sdo_data, 8, can_cfg.Identifier);
 
-    // »Ö¸´Ô­Ê¼ID
+    // ï¿½Ö¸ï¿½Ô­Ê¼ID
     can_cfg.Identifier = original_tx_id;
 
     return (status == HAL_OK) ? CANOPEN_OK : CANOPEN_TX_ERROR;
 }
 
-// CAN½ÓÊÕÊý¾Ý´¦Àí
+// CANï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ý´ï¿½ï¿½ï¿½
 void canopen_process_rx(uint32_t id, uint8_t *data, uint8_t len)
 {
-    // 1. ´¦ÀíNMTÏìÓ¦
+    // 1. ï¿½ï¿½ï¿½ï¿½NMTï¿½ï¿½Ó¦
     if (id == 0x700 + local_node_id)
     {
         uint8_t state = data[0];
-        // ×´Ì¬»ú´¦Àí...
+        // ×´Ì¬ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½...
     }
 
-    // 2. ´¦ÀíSDOÏìÓ¦
+    // 2. ï¿½ï¿½ï¿½ï¿½SDOï¿½ï¿½Ó¦
     else if ((id & 0x580) == 0x580)
     {
         uint8_t cmd = data[0];
         uint16_t index = data[1] | (data[2] << 8);
         uint8_t subindex = data[3];
 
-        // ´¦ÀíSDOÏìÓ¦...
+        // ï¿½ï¿½ï¿½ï¿½SDOï¿½ï¿½Ó¦...
     }
 
-    // 3. ´¦ÀíPDO
+    // 3. ï¿½ï¿½ï¿½ï¿½PDO
     else if ((id >= 0x180) && (id <= 0x57F))
     {
-        // PDOÊý¾Ý´¦Àí...
+        // PDOï¿½ï¿½ï¿½Ý´ï¿½ï¿½ï¿½...
     }
 }

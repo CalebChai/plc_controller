@@ -5,7 +5,7 @@ from tkinter import ttk, messagebox
 from threading import Thread
 
 # ===== 串口配置 =====
-PORT = "COM14"
+PORT = "COM15"
 BAUD = 115200
 TIMEOUT = 1
 

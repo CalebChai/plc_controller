@@ -226,7 +226,7 @@ void DigitalOutputTestTask()
     now = canopen_sdo_write(3, 0x6099, 0x03, 0x00000000, 1); // 关闭自动回零
     now = canopen_sdo_write(3, 0x6060, 0x00, 0x00000001, 1); // 设置工作模式
     now = canopen_sdo_write(3, 0x607A, 0x00, 0xFFFFD8F0, 4); // 设定目标位置
-    now = canopen_sdo_write(3, 0x6081, 0x00, 0x00085555, 4); // 设定梯形速度
+    now = canopen_sdo_write(3, 0x6081, 0x00, 0x0014FFFF, 4); // 设定梯形速度
     // now = canopen_send_nmt(3, NMT_START_CMD);                // 管理节点进入operational状态开启PDO传输
     now = canopen_sdo_write(3, 0x6040, 0x00, 0x0000004F, 2); // 写控制字4F
     now = canopen_sdo_write(3, 0x6040, 0x00, 0x0000005F, 2); // 写控制字5F
